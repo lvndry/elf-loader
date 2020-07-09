@@ -2,6 +2,7 @@
 #define ELF_LOADER_H
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
+#define poro printf("Hello world");
 
 enum Errcode {
   MISSING_ARGS = 110,

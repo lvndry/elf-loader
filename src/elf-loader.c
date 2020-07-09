@@ -13,19 +13,15 @@
 
 #include "elf-loader.h"
 
-void show_prog_mapping() {
+void show_prog_mapping(void) {
   char *pidmaps = NULL;
   asprintf(&pidmaps, "cat /proc/%u/maps", getpid());
   system(pidmaps);
 }
 
-size_t align(size_t size) {
-  if (size % 16 != 0) {
-    size = ((size >> 4) << 4) + 16;
-  }
+void print_errno(void) { fprintf(stderr, "%s\n", strerror(errno)); }
 
-  return size;
-}
+size_t align(size_t size) { return size & ~(PAGE_SIZE - 1); }
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -64,31 +60,23 @@ int main(int argc, char *argv[]) {
   Elf64_Phdr ph;
 
   for (int i = 0; i < header.e_phnum; ++i) {
-    err = read(elf, &ph, sizeof(Elf64_Phdr));
-    if (err == -1) {
-      errx(FILE_ERROR, "Could not read program headers correctly");
+    read(elf, &ph, sizeof(Elf64_Phdr));
+
+    if (ph.p_type != PT_LOAD) {
+      continue;
     }
-    printf("addr: %p\n", (void *)ph.p_vaddr);
-    printf("filesz: %ld\n", ph.p_filesz);
-    printf("memsz: %ld\n\n", ph.p_memsz);
+
+    printf("size: %ld\naligned size: %ld\n", ph.p_vaddr, align(ph.p_vaddr));
+
+    void *seg_space = mmap((void *)align(ph.p_vaddr), (ph.p_memsz),
+                           PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, elf,
+                           align(ph.p_offset));
+
+    if (seg_space == MAP_FAILED) {
+      print_errno();
+      errx(MEM_ERROR, "Could not map segment in memory");
+    }
   }
-
-  size_t length = 1;
-  printf("length: %ld\n", length);
-  printf("offset: %ld\n", header.e_phoff);
-  printf("phnum: %d\n", header.e_phnum);
-  void *addr = (void *)0x400000;
-  void *elf_space =
-      mmap(0x00, align(length), PROT_EXEC | PROT_READ | PROT_WRITE, MAP_SHARED,
-           elf, 0x1000);
-
-  if (elf_space == MAP_FAILED) {
-    errx(MEM_ERROR, "Failed to map \"%s\" segments: %s", argv[1],
-         strerror(errno));
-  }
-
-  printf("%p\n", addr);
-  printf("%p\n", elf_space);
 
   show_prog_mapping();
 
