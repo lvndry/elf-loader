@@ -19,4 +19,4 @@ execute:
 .PHONY: clean
 
 clean:
-	${RM} ${OBJS}
+	${RM} ${OBJS} execute.o
