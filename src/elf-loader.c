@@ -8,20 +8,27 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include <errno.h>
+#include <errno.h> // DELETE
 #include <stdio.h> // DELETE BEFORE PUSH
 
 #include "elf-loader.h"
 
+// DELETE
 void show_prog_mapping(void) {
   char *pidmaps = NULL;
   asprintf(&pidmaps, "cat /proc/%u/maps", getpid());
   system(pidmaps);
 }
 
+// DELETE
 void print_errno(void) { fprintf(stderr, "%s\n", strerror(errno)); }
 
 size_t align(size_t size) { return size & ~(PAGE_SIZE - 1); }
+
+// Rounds up  num to nearest multiple of m
+size_t roundUp(long unsigned int num, long m) {
+  return ((num + m - 1) / m) * m;
+}
 
 int main(int argc, char *argv[]) {
   if (argc < 2) {
@@ -66,11 +73,13 @@ int main(int argc, char *argv[]) {
       continue;
     }
 
-    printf("size: %ld\naligned size: %ld\n", ph.p_vaddr, align(ph.p_vaddr));
+    printf("memsz: %ld -- roundup: %ld\n", ph.p_memsz,
+           roundUp(ph.p_memsz, PAGE_SIZE));
 
-    void *seg_space = mmap((void *)align(ph.p_vaddr), (ph.p_memsz),
-                           PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, elf,
-                           align(ph.p_offset));
+    void *seg_space =
+        mmap((void *)align(ph.p_vaddr), roundUp(ph.p_memsz, PAGE_SIZE),
+             PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, elf,
+             (off_t)align(ph.p_offset));
 
     if (seg_space == MAP_FAILED) {
       print_errno();
