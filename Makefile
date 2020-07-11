@@ -8,7 +8,7 @@ OBJS= ${SRC:.c=.o}
 all: elf-loader clean
 
 elf-loader: ${OBJS} execute
-	${CC} -o $@ $< execute.o ${LDFLAGS}
+	${CC} -o $@ $< execute.o ${LDFLAGS} ${CFLAGS}
 
 execute:
 	${CC} -c src/execute.S -o execute.o
