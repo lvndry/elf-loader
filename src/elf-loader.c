@@ -1,4 +1,4 @@
-#define _GNU_SOURCE // DELETE
+#define _GNU_SOURCE
 
 #include <elf.h>
 #include <err.h>
@@ -14,6 +14,7 @@
 
 #include "elf-loader.h"
 #include "execute.h"
+#include "stack.h"
 
 // DELETE
 void show_prog_mapping(void) {
@@ -59,7 +60,95 @@ int is_elf_valid(Elf64_Ehdr header, char *filename) {
     errx(UNSUPPORTED_ELF, "File \"%s\": ELF OS ABI not supported", filename);
   }
 
+  if (header.e_machine != EM_X86_64) {
+    errx(UNSUPPORTED_ELF, "File \"%s\" unsupported machine", filename);
+  }
+
   return 1;
+}
+
+void swap(void **a, void **b) {
+  void *temp = *a;
+  *a = *b;
+  *b = temp;
+}
+
+// Function to reverse the array through pointers
+void reverse(void **stack, int len) {
+  void **start = stack;
+  void **end = stack + len - 1;
+  while (start < end) {
+    swap(start, end);
+    start++;
+    end--;
+  }
+}
+
+void load_segments(int fd, int phnum) {
+  Elf64_Phdr ph;
+
+  for (int i = 0; i < phnum; ++i) {
+    read(fd, &ph, sizeof(Elf64_Phdr));
+
+    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
+      continue;
+    }
+
+    if (!ph.p_memsz) {
+      continue;
+    }
+
+    void *seg_space = mmap((void *)ph.p_vaddr, roundUp(ph.p_memsz, PAGE_SIZE),
+                           PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, fd,
+                           (off_t)align(ph.p_offset));
+
+    if (seg_space == MAP_FAILED) {
+      errx(MEM_ERROR, "Could not map segment in memory");
+    }
+
+    if (ph.p_memsz > ph.p_filesz) {
+      memset((void *)(ph.p_vaddr + ph.p_filesz), 0, ph.p_memsz - ph.p_filesz);
+    }
+
+    if (!(ph.p_flags & PF_W)) {
+      mprotect(seg_space, ph.p_memsz, PROT_READ);
+    }
+
+    // executable implies read
+    if (ph.p_flags & PF_X) {
+      mprotect(seg_space, ph.p_memsz, PROT_EXEC);
+    }
+  }
+}
+
+size_t envp_length(char *envp[]) {
+  size_t size = 0;
+  while (envp[size] != NULL) {
+    size++;
+  }
+  return size;
+}
+
+int is_valid_auxv(uint64_t type) {
+  for (size_t i = 0; i < ARRAY_SIZE(auxv_fields); i++) {
+    if (auxv_fields[i] == type) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs) {
+  int j = 0;
+  for (size_t i = 0; auxv[i].a_type != AT_NULL; i++) {
+    if (is_valid_auxv(auxv[i].a_type)) {
+      stack[j] = auxv[i];
+      j++;
+      *curs += 2;
+    }
+  }
+  stack[j] = (Elf64_auxv_t){AT_NULL};
+  *curs += 2;
 }
 
 int main(int argc, char *argv[], char *envp[]) {
@@ -120,35 +209,43 @@ int main(int argc, char *argv[], char *envp[]) {
     }
   }
 
-  uint64_t *stack_argc = (uint64_t *)&argc;
-  *stack_argc = argc - 1;
-  void *next = (char *)stack_argc + 8; // + 8 bytes
-  char ***stack_argv = (char ***)next;
-  *stack_argv = (char **)(&argv[1]);
-
-  for (int i = 0; stack_argv[0][i] != NULL; ++i) {
-    printf("%s\n", stack_argv[0][i]);
+  size_t length = PAGE_SIZE * STACK_PAGES;
+  void **ptr = mmap(NULL, align(length), PROT_EXEC | PROT_WRITE | PROT_READ,
+                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (ptr == MAP_FAILED) {
+    errx(MEM_ERROR, "Could not allocate stack");
   }
 
-  printf("argv - argc: %ld\n",
-         (ptrdiff_t)((char *)stack_argv - (char *)stack_argc));
+  int curs = 0;
+  argc -= 1;
+  uint64_t cargc = argc;
+  ptr[curs++] = (void *)cargc;
 
-  // char ***stack_envp = (char ***)(*stack_argv + 1);
-  printf("envp: %s %s\n", "stack_envp[0][0]", envp[0]);
+  for (int i = 0; i < argc; ++i) {
+    ptr[curs++] = argv[i + 1];
+  }
 
-  // Elf64_auxv_t *auxv;
-  // envp is null terminated and auxv is right after
-  // while (*envp++ != NULL);
+  ptr[curs++] = NULL;
 
-  // auxv = (Elf64_auxv_t *)envp;
-  //
-  // for (auxv = (Elf64_auxv_t *)envp; auxv->a_type != AT_NULL; auxv++) {
-  //   if (auxv->a_type == AT_ENTRY) {
-  //     auxv->a_un.a_val = header.e_entry;
-  //   }
-  // }
+  for (int i = 0; envp[i] != NULL; ++i) {
+    ptr[curs++] = envp[i];
+  }
+  ptr[curs++] = NULL;
 
-  execute((void *)stack_argc, header.e_entry);
+  while (*envp++)
+    ;
+  *envp += 1;
+
+  Elf64_auxv_t *auxv = (Elf64_auxv_t *)envp;
+  Elf64_auxv_t *aux_stack = (Elf64_auxv_t *)&ptr[curs];
+
+  init_auxv(aux_stack, auxv, &curs);
+
+  size_t diff = (char *)&ptr[curs] - (char *)&ptr[0];
+
+  void *rsp = memcpy((void *)((size_t)ptr + length - diff), (void *)ptr, diff);
+
+  execute(rsp, header.e_entry);
 
   close(elf);
 
