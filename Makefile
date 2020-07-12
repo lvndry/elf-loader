@@ -18,5 +18,9 @@ execute:
 
 .PHONY: clean
 
+check:
+	BATH_PATH= BATS_INSTALL_DIR=/usr/lib TARGET=../elf-loader ${MAKE} -C tests
+
+
 clean:
 	${RM} ${OBJS} execute.o

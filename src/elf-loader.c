@@ -23,13 +23,6 @@ void show_prog_mapping(void) {
   system(pidmaps);
 }
 
-unsigned long *get_stack_ptr(void) {
-  register unsigned long *ptr __asm("rsp");
-  __asm("mov %rsp, %rax");
-
-  return ptr;
-}
-
 // DELETE
 void print_errno(void) { fprintf(stderr, "%s\n", strerror(errno)); }
 
@@ -38,12 +31,6 @@ size_t align(size_t size) { return size & ~(PAGE_SIZE - 1); }
 // Rounds up  num to nearest multiple of m
 size_t roundUp(long unsigned int num, long m) {
   return ((num + m - 1) / m) * m;
-}
-
-uintptr_t getsp(void) {
-  uintptr_t sp;
-  __asm("mov %%rsp, %0" : "=rm"(sp));
-  return sp;
 }
 
 int is_elf_valid(Elf64_Ehdr header, char *filename) {
@@ -65,60 +52,6 @@ int is_elf_valid(Elf64_Ehdr header, char *filename) {
   }
 
   return 1;
-}
-
-void swap(void **a, void **b) {
-  void *temp = *a;
-  *a = *b;
-  *b = temp;
-}
-
-// Function to reverse the array through pointers
-void reverse(void **stack, int len) {
-  void **start = stack;
-  void **end = stack + len - 1;
-  while (start < end) {
-    swap(start, end);
-    start++;
-    end--;
-  }
-}
-
-void load_segments(int fd, int phnum) {
-  Elf64_Phdr ph;
-
-  for (int i = 0; i < phnum; ++i) {
-    read(fd, &ph, sizeof(Elf64_Phdr));
-
-    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
-      continue;
-    }
-
-    if (!ph.p_memsz) {
-      continue;
-    }
-
-    void *seg_space = mmap((void *)ph.p_vaddr, roundUp(ph.p_memsz, PAGE_SIZE),
-                           PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, fd,
-                           (off_t)align(ph.p_offset));
-
-    if (seg_space == MAP_FAILED) {
-      errx(MEM_ERROR, "Could not map segment in memory");
-    }
-
-    if (ph.p_memsz > ph.p_filesz) {
-      memset((void *)(ph.p_vaddr + ph.p_filesz), 0, ph.p_memsz - ph.p_filesz);
-    }
-
-    if (!(ph.p_flags & PF_W)) {
-      mprotect(seg_space, ph.p_memsz, PROT_READ);
-    }
-
-    // executable implies read
-    if (ph.p_flags & PF_X) {
-      mprotect(seg_space, ph.p_memsz, PROT_EXEC);
-    }
-  }
 }
 
 size_t envp_length(char *envp[]) {
@@ -179,7 +112,7 @@ int main(int argc, char *argv[], char *envp[]) {
   for (int i = 0; i < header.e_phnum; ++i) {
     read(elf, &ph, sizeof(Elf64_Phdr));
 
-    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
+    if (ph.p_type != PT_LOAD) {
       continue;
     }
 
@@ -210,7 +143,7 @@ int main(int argc, char *argv[], char *envp[]) {
   }
 
   size_t length = PAGE_SIZE * STACK_PAGES;
-  void **ptr = mmap(NULL, align(length), PROT_EXEC | PROT_WRITE | PROT_READ,
+  void **ptr = mmap(NULL, align(length), PROT_READ | PROT_WRITE | PROT_EXEC,
                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (ptr == MAP_FAILED) {
     errx(MEM_ERROR, "Could not allocate stack");
@@ -249,7 +182,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
   close(elf);
 
-  show_prog_mapping();
+  // show_prog_mapping();
 
   return 0;
 }
