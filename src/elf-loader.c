@@ -9,29 +9,11 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-#include <errno.h> // DELETE
-#include <stdio.h> // DELETE BEFORE PUSH
-
 #include "elf-loader.h"
 #include "execute.h"
 #include "stack.h"
 
-// DELETE
-void show_prog_mapping(void) {
-  char *pidmaps = NULL;
-  asprintf(&pidmaps, "cat /proc/%u/maps", getpid());
-  system(pidmaps);
-}
-
-// DELETE
-void print_errno(void) { fprintf(stderr, "%s\n", strerror(errno)); }
-
 size_t align(size_t size) { return size & ~(PAGE_SIZE - 1); }
-
-// Rounds up  num to nearest multiple of m
-// size_t roundUp(long unsigned int num, long m) {
-//   return ((num + m - 1) / m) * m;
-// }
 
 int roundUp(int numToRound, int multiple) {
   int remainder = numToRound % multiple;
@@ -41,14 +23,14 @@ int roundUp(int numToRound, int multiple) {
 }
 
 int get_perms(uint32_t flags) {
-  uint32_t prot = S_IRUSR;
+  uint32_t prot = PROT_READ;
 
-  if (flags & PF_W)
-    prot |= S_IWUSR;
-  if (flags & PF_X)
-    prot |= S_IXUSR;
+  if ((flags & PF_W) != 0)
+    prot |= PROT_WRITE;
+  if ((flags & PF_X) != 0)
+    prot |= PROT_EXEC;
 
-  return flags;
+  return prot;
 }
 
 int is_elf_valid(Elf64_Ehdr header, char *filename) {
@@ -180,11 +162,9 @@ int main(int argc, char *argv[], char *envp[]) {
   void *rsp =
       memmove((void *)((size_t)stack + length - diff), (void *)stack, diff);
 
-  execute(rsp, header.e_entry);
-
   close(elf);
 
-  // show_prog_mapping();
+  execute(rsp, header.e_entry);
 
   return 0;
 }
