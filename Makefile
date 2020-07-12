@@ -24,4 +24,4 @@ check:
 
 
 clean:
-	${RM} ${OBJS} execute.o && ${MAKE} -C tests clean
+	${RM} ${OBJS} ${TESTTARG} ${TARGET} execute.o && ${MAKE} -C tests clean
