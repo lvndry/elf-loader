@@ -13,21 +13,24 @@
 #include "stack.h"
 #include "utils.h"
 
-
-void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec)
+void load_segments(int elf, Elf64_Ehdr header, int *stack_flags)
 {
     // Seeking program headers
     off_t offset = lseek(elf, header.e_phoff, SEEK_SET);
     if (offset == -1)
     {
-        errx(FILE_ERROR, "Could not read program header");
+        errx(FILE_ERROR, "Could not read ELF file");
     }
 
     Elf64_Phdr ph;
 
     for (int i = 0; i < header.e_phnum; ++i)
     {
-        read(elf, &ph, sizeof(Elf64_Phdr));
+        ssize_t err = read(elf, &ph, sizeof(Elf64_Phdr));
+        if (err == -1)
+        {
+            errx(FILE_ERROR, "Could not read program headers");
+        }
 
         if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK)
         {
@@ -48,14 +51,14 @@ void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec)
             (off_t)align(ph.p_offset)
         );
 
-        if (ph.p_type == PT_GNU_STACK)
-        {
-            *is_stack_exec = 1;
-        }
-
         if (seg_space == MAP_FAILED)
         {
             errx(MEM_ERROR, "Could not map segment in memory");
+        }
+
+        if (ph.p_type == PT_GNU_STACK)
+        {
+            *stack_flags = ph.p_flags;
         }
 
         if (ph.p_memsz > ph.p_filesz)
@@ -85,11 +88,10 @@ void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs)
     *curs += 2;
 }
 
-void *create_stack(int argc, char *argv[], char *envp[], int is_stack_exec)
+void *create_stack(int argc, char *argv[], char *envp[], int stack_flags)
 {
     size_t length = PAGE_SIZE * STACK_PAGES;
-    int prot = PROT_READ | PROT_WRITE;
-    prot = is_stack_exec ? prot | PROT_EXEC : prot;
+    int prot = stack_flags == PROT_NONE ? PROT_READ | PROT_WRITE : stack_flags ;
 
     void **stack = mmap(
         NULL,
@@ -151,7 +153,7 @@ int main(int argc, char *argv[], char *envp[])
         errx(MISSING_ARGS, "Missing argument");
     }
 
-    int is_stack_exec = 0;
+    int stack_flags = PROT_NONE;
     int elf = open(argv[1], O_RDONLY);
 
     if (elf == -1)
@@ -170,11 +172,11 @@ int main(int argc, char *argv[], char *envp[])
 
     is_elf_valid(header, argv[1]);
 
-    load_segments(elf, header, &is_stack_exec);
+    load_segments(elf, header, &stack_flags);
 
     close(elf);
 
-    void *rsp = create_stack(argc - 1, argv + 1, envp, is_stack_exec);
+    void *rsp = create_stack(argc - 1, argv + 1, envp, stack_flags);
 
     execute(rsp, header.e_entry);
 
