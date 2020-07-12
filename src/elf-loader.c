@@ -63,6 +63,37 @@ int is_valid_auxv(uint64_t type) {
   return 0;
 }
 
+void load_segments(int elf, Elf64_Ehdr header) {
+  // Seeking program headers
+  lseek(elf, header.e_phoff, SEEK_SET);
+
+  Elf64_Phdr ph;
+
+  for (int i = 0; i < header.e_phnum; ++i) {
+    read(elf, &ph, sizeof(Elf64_Phdr));
+
+    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
+      continue;
+    }
+
+    if (!ph.p_memsz) {
+      continue;
+    }
+
+    void *seg_space = mmap((void *)ph.p_vaddr, roundUp(ph.p_memsz, PAGE_SIZE),
+                           get_perms(ph.p_flags), MAP_PRIVATE, elf,
+                           (off_t)align(ph.p_offset));
+
+    if (seg_space == MAP_FAILED) {
+      errx(MEM_ERROR, "Could not map segment in memory");
+    }
+
+    if (ph.p_memsz > ph.p_filesz) {
+      memset((void *)(ph.p_vaddr + ph.p_filesz), 0, ph.p_memsz - ph.p_filesz);
+    }
+  }
+}
+
 void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs) {
   int j = 0;
   for (size_t i = 0; auxv[i].a_type != AT_NULL; i++) {
@@ -96,34 +127,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
   is_elf_valid(header, argv[1]);
 
-  // Seeking program headers
-  lseek(elf, header.e_phoff, SEEK_SET);
-
-  Elf64_Phdr ph;
-
-  for (int i = 0; i < header.e_phnum; ++i) {
-    read(elf, &ph, sizeof(Elf64_Phdr));
-
-    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
-      continue;
-    }
-
-    if (!ph.p_memsz) {
-      continue;
-    }
-
-    void *seg_space = mmap((void *)ph.p_vaddr, roundUp(ph.p_memsz, PAGE_SIZE),
-                           get_perms(ph.p_flags), MAP_PRIVATE, elf,
-                           (off_t)align(ph.p_offset));
-
-    if (seg_space == MAP_FAILED) {
-      errx(MEM_ERROR, "Could not map segment in memory");
-    }
-
-    if (ph.p_memsz > ph.p_filesz) {
-      memset((void *)(ph.p_vaddr + ph.p_filesz), 0, ph.p_memsz - ph.p_filesz);
-    }
-  }
+  load_segments(elf, header);
 
   size_t length = PAGE_SIZE * STACK_PAGES;
   void **stack = mmap(NULL, align(length), PROT_READ | PROT_WRITE | PROT_EXEC,
@@ -159,6 +163,7 @@ int main(int argc, char *argv[], char *envp[]) {
 
   size_t diff = (char *)&stack[curs] - (char *)&stack[0];
 
+  // Move the stack at the upper addresses / start of stack
   void *rsp =
       memmove((void *)((size_t)stack + length - diff), (void *)stack, diff);
 
