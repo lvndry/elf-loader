@@ -13,33 +13,6 @@
 #include "stack.h"
 #include "utils.h"
 
-int is_elf_valid(Elf64_Ehdr header, char *filename)
-{
-    if (memcmp(header.e_ident, ELFMAG, SELFMAG) != 0)
-    {
-        errx(FILE_ERROR, "The file \"%s\" is not an ELF", filename);
-    }
-
-    if (header.e_ident[EI_CLASS] != ELFCLASS64)
-    {
-        errx(UNSUPPORTED_ELF, "File \"%s\": ELF class not supported", filename);
-    }
-
-    if (
-        header.e_ident[EI_OSABI] != ELFOSABI_SYSV &&
-        header.e_ident[EI_OSABI] != ELFOSABI_LINUX
-    )
-    {
-        errx(UNSUPPORTED_ELF, "File \"%s\": ELF OS ABI not supported", filename);
-    }
-
-    if (header.e_machine != EM_X86_64)
-    {
-        errx(UNSUPPORTED_ELF, "File \"%s\" unsupported machine", filename);
-    }
-
-    return 1;
-}
 
 void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec)
 {
