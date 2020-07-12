@@ -3,8 +3,8 @@
 
 #include <elf.h>
 #include <stddef.h>
+#include <unistd.h>
 
-#define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
 
 enum Errcode {
   MISSING_ARGS = 110,
@@ -19,12 +19,8 @@ struct Error {
   char *message;
 };
 
-int get_perms(const uint32_t flags);
 int is_elf_valid(Elf64_Ehdr header, char *filename);
 int is_valid_auxv(uint64_t type);
-int roundUp(const int num, const int m);
-
-size_t align(size_t size);
 
 void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec);
 void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs);
