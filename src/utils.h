@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
 
