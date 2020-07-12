@@ -25,9 +25,9 @@ int roundUp(int numToRound, int multiple) {
 int get_perms(uint32_t flags) {
   uint32_t prot = PROT_READ;
 
-  if ((flags & PF_W) != 0)
+  if (flags & PF_W)
     prot |= PROT_WRITE;
-  if ((flags & PF_X) != 0)
+  if (flags & PF_X)
     prot |= PROT_EXEC;
 
   return prot;
@@ -72,7 +72,7 @@ void load_segments(int elf, Elf64_Ehdr header) {
   for (int i = 0; i < header.e_phnum; ++i) {
     read(elf, &ph, sizeof(Elf64_Phdr));
 
-    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
+    if (ph.p_type != PT_LOAD) {
       continue;
     }
 
@@ -107,28 +107,7 @@ void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs) {
   *curs += 2;
 }
 
-int main(int argc, char *argv[], char *envp[]) {
-  if (argc < 2) {
-    errx(MISSING_ARGS, "Missing argument");
-  }
-
-  int elf = open(argv[1], O_RDWR);
-  if (elf == -1) {
-    errx(FILE_ERROR,
-         "Could not open file\nUsage: ./elf-loader path/to/elf <args>");
-  }
-
-  Elf64_Ehdr header;
-
-  ssize_t err = read(elf, &header, sizeof(Elf64_Ehdr));
-  if (err == -1) {
-    errx(FILE_ERROR, "Could not read elf headers correctly");
-  }
-
-  is_elf_valid(header, argv[1]);
-
-  load_segments(elf, header);
-
+void *create_stack(int argc, char *argv[], char *envp[]) {
   size_t length = PAGE_SIZE * STACK_PAGES;
   void **stack = mmap(NULL, align(length), PROT_READ | PROT_WRITE | PROT_EXEC,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -137,12 +116,11 @@ int main(int argc, char *argv[], char *envp[]) {
   }
 
   int curs = 0;
-  argc -= 1;
   uint64_t cargc = argc;
   stack[curs++] = (void *)cargc;
 
   for (int i = 0; i < argc; ++i) {
-    stack[curs++] = argv[i + 1];
+    stack[curs++] = argv[i];
   }
 
   stack[curs++] = NULL;
@@ -166,6 +144,33 @@ int main(int argc, char *argv[], char *envp[]) {
   // Move the stack at the upper addresses / start of stack
   void *rsp =
       memmove((void *)((size_t)stack + length - diff), (void *)stack, diff);
+
+  return rsp;
+}
+
+int main(int argc, char *argv[], char *envp[]) {
+  if (argc < 2) {
+    errx(MISSING_ARGS, "Missing argument");
+  }
+
+  int elf = open(argv[1], O_RDONLY);
+  if (elf == -1) {
+    errx(FILE_ERROR,
+         "Could not open file\nUsage: ./elf-loader path/to/elf <args>");
+  }
+
+  Elf64_Ehdr header;
+
+  ssize_t err = read(elf, &header, sizeof(Elf64_Ehdr));
+  if (err == -1) {
+    errx(FILE_ERROR, "Could not read elf headers correctly");
+  }
+
+  is_elf_valid(header, argv[1]);
+
+  load_segments(elf, header);
+
+  void *rsp = create_stack(argc - 1, argv + 1, envp);
 
   close(elf);
 
