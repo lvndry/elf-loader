@@ -16,6 +16,8 @@ size_t align(size_t size)
 // round to the nearest multiple of m
 int roundUp(const int num, const int m)
 {
+    if (m == 0)
+        return num;
     int remainder = num % m;
     if (remainder == 0)
         return num;
@@ -59,8 +61,8 @@ int is_elf_valid(Elf64_Ehdr header, char *filename)
     }
 
     if (
-        header.e_ident[EI_OSABI] != ELFOSABI_SYSV &&
-        header.e_ident[EI_OSABI] != ELFOSABI_LINUX
+        header.e_ident[EI_OSABI] != ELFOSABI_SYSV
+        && header.e_ident[EI_OSABI] != ELFOSABI_LINUX
     )
     {
         errx(UNSUPPORTED_ELF, "File \"%s\": ELF OS ABI not supported", filename);

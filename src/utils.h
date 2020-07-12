@@ -1,9 +1,10 @@
 #ifndef UTILS_H
 #define UTILS_H
 
-#include <unistd.h>
-#include <stdlib.h>
+#include <elf.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #define PAGE_SIZE sysconf(_SC_PAGE_SIZE)
 
