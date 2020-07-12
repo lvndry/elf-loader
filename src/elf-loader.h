@@ -20,7 +20,6 @@ struct Error {
 };
 
 int is_elf_valid(Elf64_Ehdr header, char *filename);
-int is_valid_auxv(uint64_t type);
 
 void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec);
 void init_auxv(Elf64_auxv_t *stack, Elf64_auxv_t auxv[], int *curs);

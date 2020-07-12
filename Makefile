@@ -16,7 +16,7 @@ ${TARGET}: ${SRC}
 .PHONY: clean all
 
 ${TESTTARG}: ${TESTFILES} utils.c
-	${CC} -o $@ $^ -lcriterion -fsanitize=address
+	${CC} -o $@ $^ -lcriterion
 
 check:
 	make ${TESTTARG} && ./${TESTTARG}

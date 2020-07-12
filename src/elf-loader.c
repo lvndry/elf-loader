@@ -41,18 +41,6 @@ int is_elf_valid(Elf64_Ehdr header, char *filename)
     return 1;
 }
 
-int is_valid_auxv(uint64_t type)
-{
-    for (size_t i = 0; i < ARRAY_SIZE(auxv_fields); i++)
-    {
-        if (auxv_fields[i] == type)
-        {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 void load_segments(int elf, Elf64_Ehdr header, int *is_stack_exec)
 {
     // Seeking program headers
