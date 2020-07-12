@@ -29,8 +29,26 @@ void print_errno(void) { fprintf(stderr, "%s\n", strerror(errno)); }
 size_t align(size_t size) { return size & ~(PAGE_SIZE - 1); }
 
 // Rounds up  num to nearest multiple of m
-size_t roundUp(long unsigned int num, long m) {
-  return ((num + m - 1) / m) * m;
+// size_t roundUp(long unsigned int num, long m) {
+//   return ((num + m - 1) / m) * m;
+// }
+
+int roundUp(int numToRound, int multiple) {
+  int remainder = numToRound % multiple;
+  if (remainder == 0)
+    return numToRound;
+  return numToRound + multiple - remainder;
+}
+
+int get_perms(uint32_t flags) {
+  uint32_t prot = S_IRUSR;
+
+  if (flags & PF_W)
+    prot |= S_IWUSR;
+  if (flags & PF_X)
+    prot |= S_IXUSR;
+
+  return flags;
 }
 
 int is_elf_valid(Elf64_Ehdr header, char *filename) {
@@ -52,14 +70,6 @@ int is_elf_valid(Elf64_Ehdr header, char *filename) {
   }
 
   return 1;
-}
-
-size_t envp_length(char *envp[]) {
-  size_t size = 0;
-  while (envp[size] != NULL) {
-    size++;
-  }
-  return size;
 }
 
 int is_valid_auxv(uint64_t type) {
@@ -112,7 +122,7 @@ int main(int argc, char *argv[], char *envp[]) {
   for (int i = 0; i < header.e_phnum; ++i) {
     read(elf, &ph, sizeof(Elf64_Phdr));
 
-    if (ph.p_type != PT_LOAD) {
+    if (ph.p_type != PT_LOAD && ph.p_type != PT_GNU_STACK) {
       continue;
     }
 
@@ -121,7 +131,7 @@ int main(int argc, char *argv[], char *envp[]) {
     }
 
     void *seg_space = mmap((void *)ph.p_vaddr, roundUp(ph.p_memsz, PAGE_SIZE),
-                           PROT_EXEC | PROT_READ | PROT_WRITE, MAP_PRIVATE, elf,
+                           get_perms(ph.p_flags), MAP_PRIVATE, elf,
                            (off_t)align(ph.p_offset));
 
     if (seg_space == MAP_FAILED) {
@@ -131,52 +141,44 @@ int main(int argc, char *argv[], char *envp[]) {
     if (ph.p_memsz > ph.p_filesz) {
       memset((void *)(ph.p_vaddr + ph.p_filesz), 0, ph.p_memsz - ph.p_filesz);
     }
-
-    if (!(ph.p_flags & PF_W)) {
-      mprotect(seg_space, ph.p_memsz, PROT_READ);
-    }
-
-    // executable implies read
-    if (ph.p_flags & PF_X) {
-      mprotect(seg_space, ph.p_memsz, PROT_EXEC);
-    }
   }
 
   size_t length = PAGE_SIZE * STACK_PAGES;
-  void **ptr = mmap(NULL, align(length), PROT_READ | PROT_WRITE | PROT_EXEC,
-                    MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (ptr == MAP_FAILED) {
+  void **stack = mmap(NULL, align(length), PROT_READ | PROT_WRITE | PROT_EXEC,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (stack == MAP_FAILED) {
     errx(MEM_ERROR, "Could not allocate stack");
   }
 
   int curs = 0;
   argc -= 1;
   uint64_t cargc = argc;
-  ptr[curs++] = (void *)cargc;
+  stack[curs++] = (void *)cargc;
 
   for (int i = 0; i < argc; ++i) {
-    ptr[curs++] = argv[i + 1];
+    stack[curs++] = argv[i + 1];
   }
 
-  ptr[curs++] = NULL;
+  stack[curs++] = NULL;
 
   for (int i = 0; envp[i] != NULL; ++i) {
-    ptr[curs++] = envp[i];
+    stack[curs++] = envp[i];
   }
-  ptr[curs++] = NULL;
+  stack[curs++] = NULL;
 
   while (*envp++)
     ;
   *envp += 1;
 
   Elf64_auxv_t *auxv = (Elf64_auxv_t *)envp;
-  Elf64_auxv_t *aux_stack = (Elf64_auxv_t *)&ptr[curs];
+  Elf64_auxv_t *aux_stack = (Elf64_auxv_t *)&stack[curs];
 
   init_auxv(aux_stack, auxv, &curs);
 
-  size_t diff = (char *)&ptr[curs] - (char *)&ptr[0];
+  size_t diff = (char *)&stack[curs] - (char *)&stack[0];
 
-  void *rsp = memcpy((void *)((size_t)ptr + length - diff), (void *)ptr, diff);
+  void *rsp =
+      memmove((void *)((size_t)stack + length - diff), (void *)stack, diff);
 
   execute(rsp, header.e_entry);
 
